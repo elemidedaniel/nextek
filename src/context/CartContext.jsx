@@ -48,31 +48,60 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useAuth } from "./AuthContext";
 
+// -------------------- CONTEXT --------------------
 const CartContext = createContext();
 export const useCart = () => useContext(CartContext);
 
+// -------------------- PROVIDER --------------------
 export const CartProvider = ({ children }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth(); // token from backend JWT
 
+  // localStorage key
   const cartKey = user ? `cart_${user._id}` : "cart_guest";
 
+  // cart state
   const [cart, setCart] = useState(() => {
     const saved = localStorage.getItem(cartKey);
     return saved ? JSON.parse(saved) : [];
   });
 
-  // 🔁 Reload cart when user changes (login / logout)
+  // -------------------- LOAD CART ON USER CHANGE --------------------
   useEffect(() => {
     const saved = localStorage.getItem(cartKey);
     setCart(saved ? JSON.parse(saved) : []);
   }, [cartKey]);
 
-  // 💾 Persist cart
+  // -------------------- SAVE TO LOCALSTORAGE --------------------
   useEffect(() => {
-    localStorage.setItem(cartKey, JSON.stringify(cart));
+    const timeout = setTimeout(() => {
+      localStorage.setItem(cartKey, JSON.stringify(cart));
+    }, 300);
+    return () => clearTimeout(timeout);
   }, [cart, cartKey]);
 
-  // ➕ Add to cart
+  // -------------------- SYNC TO BACKEND --------------------
+  useEffect(() => {
+    if (!user || !token) return;
+
+    const syncCart = async () => {
+      try {
+        await fetch(`${import.meta.env.VITE_API_URL}/api/cart`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ cart }),
+        });
+      } catch (err) {
+        console.error("Failed to sync cart:", err);
+      }
+    };
+
+    syncCart();
+  }, [cart, user, token]);
+
+  // -------------------- CART ACTIONS --------------------
   const addToCart = (product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
@@ -87,7 +116,6 @@ export const CartProvider = ({ children }) => {
     });
   };
 
-  // ➕ Increase quantity
   const increaseQty = (id) => {
     setCart((prev) =>
       prev.map((item) =>
@@ -96,7 +124,6 @@ export const CartProvider = ({ children }) => {
     );
   };
 
-  // ➖ Decrease quantity
   const decreaseQty = (id) => {
     setCart((prev) =>
       prev
@@ -109,17 +136,13 @@ export const CartProvider = ({ children }) => {
     );
   };
 
-  // ❌ Remove item
   const removeFromCart = (id) => {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // 🧮 Total
-  const total = cart.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0
-  );
+  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
+  // -------------------- PROVIDER VALUE --------------------
   return (
     <CartContext.Provider
       value={{
